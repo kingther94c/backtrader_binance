@@ -69,9 +69,8 @@ class RSIStrategy(bt.Strategy):
                         self.cancel(order)  # then cancel it
 
                     if self.rsi[ticker] < 60:  # Enter long
-                        size = 0.0007  # min value to buy for BTC and ETH
-                        if data._name == "XMRETH": size = 0.1
-                        if data._name == "BNBETH": size = 0.1
+                        size = 0.01  # min value to buy for BTC and ETH
+                        if data._name == "ETHBTC": size = 0.01
                         price = self.broker._store.format_price(ticker, data.low[0] * 0.95)  # 5% lower than the min price
                         print(f" - buy {ticker} size = {size} at price = {price}")
                         self.orders[data._name] = self.buy(data=data, exectype=bt.Order.Limit, price=price, size=size)
@@ -110,13 +109,18 @@ if __name__ == '__main__':
 
     coin_target = 'ETH'  # the base ticker in which calculations will be performed
     symbol = 'BNB' + coin_target  # the ticker by which we will receive data in the format <CodeTickerBaseTicker>
-    symbol2 = 'XMR' + coin_target  # the ticker by which we will receive data in the format <CodeTickerBaseTicker>
+    symbol2 = coin_target + 'BTC' # the ticker by which we will receive data in the format <CodeTickerBaseTicker>
 
     store = BinanceStore(
         api_key=Config.BINANCE_API_KEY,
         api_secret=Config.BINANCE_API_SECRET,
         coin_target=coin_target,
-        testnet=False)  # Binance Storage
+        testnet=True)  # Binance Storage
+
+    # basic info
+
+    symbol_info = store.get_symbol_info(symbol)
+    symbol_info2 = store.get_symbol_info(symbol2)
 
     # live connection to Binance - for Offline comment these two lines
     broker = store.getbroker()

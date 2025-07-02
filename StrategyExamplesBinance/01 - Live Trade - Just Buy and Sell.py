@@ -117,7 +117,7 @@ if __name__ == '__main__':
         api_key=Config.BINANCE_API_KEY,
         api_secret=Config.BINANCE_API_SECRET,
         coin_target=coin_target,
-        testnet=False)  # Binance Storage
+        testnet=True)  # Binance Storage
 
     # live connection to Binance - for Offline comment these two lines
     broker = store.getbroker()

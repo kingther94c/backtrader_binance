@@ -1,11 +1,45 @@
+import time
 from collections import deque
-
+from datetime import datetime
+from tqdm import tqdm
 import pandas as pd
 
 from backtrader.feed import DataBase
 from backtrader.utils import date2num
 
 from backtrader import TimeFrame as tf
+
+
+interval_ms = {
+        "1s": 1000,  # 1 sec
+        "1m": 60000,  # 1 min
+        "5m": 300000,  # 5 min
+        "15m": 900000,  # 15 min
+        "30m": 1800000,  # 30 min
+        "1h": 3600000,  # 1 hour
+        "4h": 14400000,  # 4 hours
+        "1d": 86400000  # 1 day
+    }
+
+def to_timestamp(date_string):
+    date_object = datetime.strptime(date_string, '%Y-%m-%d')
+    timestamp = datetime.timestamp(date_object)
+    timestamp_ms = int(timestamp * 1000)
+    return timestamp_ms
+
+def generate_batches(start_date, end_date, interval, limit_per_request=1500):
+    start_timestamp = to_timestamp(start_date)
+    end_timestamp = to_timestamp(end_date)
+    step = interval_ms[interval]  # Get the interval in milliseconds
+    batches = []
+    current_start = start_timestamp
+
+    while current_start < end_timestamp:
+        current_end = min(current_start + step * limit_per_request, end_timestamp)
+        batches.append((current_start, current_end))
+        current_start = current_end
+
+    return batches
 
 
 class BinanceData(DataBase):
@@ -61,7 +95,7 @@ class BinanceData(DataBase):
         except IndexError:
             return None
 
-        timestamp, open_, high, low, close, volume = kline
+        timestamp, open_, high, low, close, volume = kline[:6]
 
         self.lines.datetime[0] = date2num(timestamp)
         self.lines.open[0] = open_
@@ -73,7 +107,6 @@ class BinanceData(DataBase):
     
     def _parser_dataframe(self, data):
         df = data.copy()
-        df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
         df['timestamp'] = df['timestamp'].values.astype(dtype='datetime64[ms]')
         df['open'] = df['open'].values.astype(float)
         df['high'] = df['high'].values.astype(float)
@@ -108,8 +141,20 @@ class BinanceData(DataBase):
 
     def islive(self):
         return True
-        
-    def start(self):
+
+    def get_batched_historical_klines(self, symbol, interval, start_date, end_date=None, limit_per_request=1500):
+        if end_date is None:
+            end_date = datetime.today().strftime('%Y-%m-%d')
+        batches = generate_batches(start_date, end_date, interval, limit_per_request)
+        all_klines = []
+
+        for start, end in tqdm(batches, desc="Fetching historical klines"):
+            klines = self._store.binance.get_historical_klines(symbol, interval, start_str=start, end_str=end)
+            all_klines.extend(klines)
+
+        return all_klines
+
+    def start(self, limit=3000):
         DataBase.start(self)
 
         self.interval = self._store.get_interval(self.timeframe, self.compression)
@@ -128,17 +173,26 @@ class BinanceData(DataBase):
             self._state = self._ST_HISTORBACK
             self.put_notification(self.DELAYED)
 
-            klines = self._store.binance.get_historical_klines(
-                self.symbol_info['symbol'],
-                self.interval,
-                self.start_date.strftime('%d %b %Y %H:%M:%S'))
+            if limit is None:
+                klines = self._store.binance.get_historical_klines(
+                    self.symbol_info['symbol'],
+                    self.interval,
+                    self.start_date.strftime('%d %b %Y %H:%M:%S'),)
+            else:
+                klines = self.get_batched_historical_klines(
+                    self.symbol_info['symbol'],
+                    self.interval,
+                    self.start_date.strftime('%Y-%m-%d'),
+                    limit_per_request=limit)
 
             try:
                 if self.p.drop_newest:
                     klines.pop()
 
-                df = pd.DataFrame(klines)
-                df.drop(df.columns[[6, 7, 8, 9, 10, 11]], axis=1, inplace=True)  # Remove unnecessary columns
+                df = pd.DataFrame(klines, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time',
+                                                   'quote_asset_volume', 'number_of_trades',
+                                                   'taker_buy_base_asset_volume',
+                                                   'taker_buy_quote_asset_volume', 'ignore'])
                 df = self._parser_dataframe(df)
                 self._data.extend(df.values.tolist())
             except Exception as e:

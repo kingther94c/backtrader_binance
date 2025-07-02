@@ -9,8 +9,8 @@ from binance.enums import *
 from binance.exceptions import BinanceAPIException
 from requests.exceptions import ConnectTimeout, ConnectionError
 
-from .binance_broker import BinanceBroker
-from .binance_feed import BinanceData
+from backtrader_binance.binance_broker import BinanceBroker
+from backtrader_binance.binance_feed import BinanceData
 
 
 class BinanceStore(object):

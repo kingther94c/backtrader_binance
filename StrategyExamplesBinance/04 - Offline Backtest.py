@@ -1,7 +1,9 @@
 import datetime as dt
 import backtrader as bt
 from backtrader_binance import BinanceStore
-from ConfigBinance.Config import Config  # Configuration file
+from ConfigBinance.Config import Config, LiveConfig  # Configuration file
+import numpy as np
+import pandas as pd
 
 
 # Trading System
@@ -70,9 +72,7 @@ class RSIStrategy(bt.Strategy):
                         # self.cancel(order)  # then cancel it
 
                     if self.rsi[ticker] < 30:  # Enter long
-                        size = 0.0005  # min value to buy for BTC and ETH
-                        if data._name == "ETHUSDT": size = 0.05
-
+                        size = 0.0001  # min value to buy for BTC and ETH
                         price = data.close[0]  # by closing price
 
                         print(f" - buy {ticker} size = {size} at price = {price}")
@@ -110,7 +110,7 @@ class RSIStrategy(bt.Strategy):
 if __name__ == '__main__':
     cerebro = bt.Cerebro(quicknotify=True)
 
-    cerebro.broker.setcash(200000)  # Setting how much money
+    cerebro.broker.setcash(1000)  # Setting how much money
     cerebro.broker.setcommission(commission=0.0015)  # Set the commission - 0.15% ... divide by 100 to remove %
 
     coin_target = 'USDT'  # the base ticker in which calculations will be performed
@@ -118,8 +118,8 @@ if __name__ == '__main__':
     symbol2 = 'ETH' + coin_target  # the ticker by which we will receive data in the format <CodeTickerBaseTicker>
 
     store = BinanceStore(
-        api_key=Config.BINANCE_API_KEY,
-        api_secret=Config.BINANCE_API_SECRET,
+        api_key=LiveConfig.BINANCE_API_KEY,
+        api_secret=LiveConfig.BINANCE_API_SECRET,
         coin_target=coin_target,
         testnet=False)  # Binance Storage
 
@@ -133,7 +133,7 @@ if __name__ == '__main__':
 
     # Historical 1-minute bars for 10 hours + new live bars / timeframe M1
     timeframe = "M1"
-    from_date = dt.datetime.utcnow() - dt.timedelta(minutes=60*10)
+    from_date = dt.datetime.utcnow() - dt.timedelta(days=100)
     data = store.getdata(timeframe=bt.TimeFrame.Minutes, compression=1, dataname=symbol, start_date=from_date, LiveBars=False)  # set True here - if you need to get live bars
     data2 = store.getdata(timeframe=bt.TimeFrame.Minutes, compression=1, dataname=symbol2, start_date=from_date, LiveBars=False)  # set True here - if you need to get live bars
 
@@ -141,6 +141,18 @@ if __name__ == '__main__':
     cerebro.adddata(data2)  # Adding data
 
     cerebro.addstrategy(RSIStrategy, coin_target=coin_target, timeframe=timeframe)  # Adding a trading system
+    cerebro.addanalyzer(bt.analyzers.PyFolio, _name='pyfolio')
+    cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
+    cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
 
-    cerebro.run()  # Launching a trading system
+    results = cerebro.run()  # Launching a trading system
+    pyfolio = results[0].analyzers.pyfolio.get_analysis()
+    total_return = sum(pyfolio['returns'].values())  # Total return in percentage
+    sharpe_ratio = results[0].analyzers.sharpe.get_analysis()
+    drawdown = results[0].analyzers.drawdown.get_analysis()
+    print(f"Sharpe Ratio: {sharpe_ratio['sharperatio']}")
+    print(f"Total Return: {total_return * 100:.2f}%")
+    print(f"Max Drawdown: {drawdown['max']['drawdown']}%")
+
     cerebro.plot()  # Draw a chart
+
